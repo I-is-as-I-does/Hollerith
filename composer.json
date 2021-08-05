@@ -1,0 +1,28 @@
+{
+    "name": "ssitu/hollerith",
+    "description": "Opiniated wrap of awesome Gebler/Doclite SQLite document store. Implements mandatory Json schema validation, most basic CRUD rights checks, and relationship resolution.",
+    "type": "library",
+    "keywords" :["php", "wrap", "database"],
+    "homepage":"https://github.com/I-is-as-I-does/Hollerith",
+    "license": "MIT",
+    "readme":"README.md",
+    "authors": [
+        {
+            "name": "I-is-as-I-does",
+            "email": "66915011+I-is-as-I-does@users.noreply.github.com"
+        }
+    ],
+    "minimum-stability": "stable",
+    "require": {
+"ssitu/blueprints":"^0.2.0",
+        "dwgebler/doclite" : "^1.0.5"
+    },
+    "suggest": {
+       
+    },
+    "autoload": {
+        "psr-4": {
+            "SSITU\\Hollerith\\": "src"
+        }
+    }
+}
