@@ -4,13 +4,14 @@ namespace SSITU\Hollerith\Trades;
 
 use Gebler\Doclite\Database;
 use Gebler\Doclite\Exception\DatabaseException;
-use \SSITU\Blueprints;
+use \SSITU\Blueprints\Log;
+use \SSITU\Blueprints\Mode;
 
-class DeckOperator implements Blueprints\HubLogInterface, Blueprints\HubModeInterface
+class DeckOperator implements Log\FlexLogsInterface, Mode\HubModeInterface
 
 {
-    use Blueprints\HubLogTrait;
-    use Blueprints\HubModeTrait;
+    use Log\FlexLogsTrait;
+    use Mode\HubModeTrait;
 
     private $db;
     private $dbMap;
@@ -24,14 +25,12 @@ class DeckOperator implements Blueprints\HubLogInterface, Blueprints\HubModeInte
 
     public function __construct($SchemaProvider, $db, $dbMap, $crudRights)
     {
+
         $this->SchemaProvider = $SchemaProvider;
         $this->db = $db;
         $this->dbMap = $dbMap;
         $this->setRights($crudRights);
     }
-
-
-
 
     public function optimizeBoard()
     {
@@ -45,18 +44,15 @@ class DeckOperator implements Blueprints\HubLogInterface, Blueprints\HubModeInte
 
     public function exportBoard($path, $decks = [])
     {
-        $this->db->export($path, 'json', Database::MODE_EXPORT_COLLECTIONS,$decks);
+        $this->db->export($path, 'json', Database::MODE_EXPORT_COLLECTIONS, $decks);
     }
 
     public function atomicExportBoard($path, $decks = [])
     {
-        $this->db->export($path, 'json', Database::MODE_EXPORT_DOCUMENTS,$decks);
+        $this->db->export($path, 'json', Database::MODE_EXPORT_DOCUMENTS, $decks);
     }
 
-
-
-
- public function getCardOperator($deckName)
+    public function getCardOperator($deckName)
     {
         if (!$this->cardOpIsRegistered($deckName)) {
             $this->cardOperators[$deckName] = new CardOperator($this, $deckName);
@@ -64,12 +60,10 @@ class DeckOperator implements Blueprints\HubLogInterface, Blueprints\HubModeInte
         return $this->cardOperators[$deckName];
     }
 
-    
     public function cardOpIsRegistered($deckName)
     {
         return array_key_exists($deckName, $this->cardOperators);
     }
-
 
     public function getDeck($deckName)
     {
@@ -151,6 +145,7 @@ class DeckOperator implements Blueprints\HubLogInterface, Blueprints\HubModeInte
 
     public function createCard($deckName, $data)
     {
+ 
         $deck = $this->loadDeckForPunch($deckName, $data, 'C');
         if (is_int($deck)) {
             return $deck;
@@ -159,7 +154,7 @@ class DeckOperator implements Blueprints\HubLogInterface, Blueprints\HubModeInte
         if (empty($sch)) {
             return 500;
         }
-  
+
         $card = $deck->get();
         $card->addJsonSchema($sch);
 
@@ -194,16 +189,16 @@ class DeckOperator implements Blueprints\HubLogInterface, Blueprints\HubModeInte
         if ($this->cardTransaction($deck, $card, $data)) {
             return 201;
         }
-        return 400; 
+        return 400;
     }
 
     protected function loadDeckForPunch($deckName, $data, $operation)
     {
         if (!$this->checkRights($operation)) {
-            return 403; 
+            return 403;
         }
         if (!$this->cardHasData($data)) {
-            return 400; 
+            return 400;
         }
 
         if ($deck = $this->getDeck($deckName)) {
@@ -268,7 +263,7 @@ class DeckOperator implements Blueprints\HubLogInterface, Blueprints\HubModeInte
     {
         if (!$this->deckisInMap($deckName)) {
             $this->dbMap['sch'][$deckName] = false;
-            $this->hubLog('alert', 'missing-schema-path-in-board-map', $deckName);
+            $this->log('alert', 'missing-schema-path-in-board-map', $deckName);
             return false;
         }
         return $this->dbMap['sch'][$deckName];
@@ -284,13 +279,13 @@ class DeckOperator implements Blueprints\HubLogInterface, Blueprints\HubModeInte
         return false;
     }
 
-
 # crud rights methods
 
-protected function setRights($crudRights)
+    protected function setRights($crudRights)
     {
         foreach (['C', 'R', 'U', 'D'] as $prop) {
             if (!array_key_exists($prop, $crudRights) || $crudRights[$prop] !== true) {
+                echo $prop;
                 $crudRights[$prop] = false;
             }
         }
@@ -299,10 +294,10 @@ protected function setRights($crudRights)
 
     protected function checkRights($operation)
     {
-        return empty($this->crudRights[$operation]);
+        return !empty($this->crudRights[$operation]);
 
     }
-    
+
 # card-level methods
     protected function cardHasSch($cardId)
     {
@@ -311,6 +306,7 @@ protected function setRights($crudRights)
 
     protected function cardTransaction($deck, $card, $data)
     {
+
         $deck->beginTransaction();
         try {
             foreach ($data as $key => $value) {
@@ -320,7 +316,7 @@ protected function setRights($crudRights)
             $deck->commit();
             return true;
         } catch (\DatabaseException$e) {
-            $this->hubLog('notice', 'validation-fail', ['card' => $card->getId(), 'reasons' => $e->getParams()['error']]);
+            $this->log('notice', 'validation-fail', ['card' => $card->getId(), 'reasons' => $e->getParams()['error']]);
             $deck->rollback();
             return false;
         }
@@ -329,7 +325,7 @@ protected function setRights($crudRights)
     protected function cardHasData($data)
     {
         if (empty($data)) {
-            $this->hubLog('notice', 'empty-data');
+            $this->log('notice', 'empty-data');
             return false;
         }
         return true;

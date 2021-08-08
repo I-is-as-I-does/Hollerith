@@ -5,15 +5,14 @@ namespace SSITU\Hollerith;
 use Gebler\Doclite\Exception\DatabaseException;
 use Gebler\Doclite\Exception\IOException;
 use Gebler\Doclite\FileDatabase;
-use Trades\MapProvider;
-use Trades\SchemaProvider;
-use \SSITU\Blueprints;
+use \SSITU\Blueprints\Log;
+use \SSITU\Blueprints\Mode;
 
-class Hollerith implements Blueprints\FlexLogsInterface, Blueprints\AdminModeInterface
+class Hollerith implements Log\FlexLogsInterface, Mode\AdminModeInterface
 
 {
-    use Blueprints\FlexLogsTrait;
-    use Blueprints\AdminModeTrait;
+    use Log\FlexLogsTrait;
+    use Mode\AdminModeTrait;
 
     private $store = [];
 
@@ -49,10 +48,10 @@ class Hollerith implements Blueprints\FlexLogsInterface, Blueprints\AdminModeInt
         return !empty($this->store[$boardpath]);
     }
 
-    public function callDeckOperator($boardPath, $crudRights)
+    public function callDeckOperator($boardPath, $crudRights, $createBoard = false)
     {
         if (!$this->isRegistered($boardPath)) {
-            $this->store[$boardPath] = $this->assignDeckOperator($boardPath, $crudRights);
+            $this->store[$boardPath] = $this->assignDeckOperator($boardPath, $crudRights, $createBoard);
         }
         return $this->store[$boardPath];
     }
@@ -65,21 +64,38 @@ class Hollerith implements Blueprints\FlexLogsInterface, Blueprints\AdminModeInt
         return false;
     }
 
-    private function assignDeckOperator($boardPath, $crudRights)
+    private function assignDeckOperator($boardPath, $crudRights, $createBoard = false)
     {
         if (!$this->allSet) {
             return false;
         }
-        if ($this->checkBoardPath($boardPath)
-            && $this->checkRights($crudRights)
-            && $boardMap = $this->MapProvider->getBoardMap($boardPath)
-            && $board = $this->initBoard($boardPath)) {
 
-            $deckOperator = new Trades\DeckOperator($this->SchemaProvider, $board, $boardMap, $crudRights);
-            $this->relayLog($deckOperator);
-            $this->relayChecker($deckOperator);
-            return $deckOperator;
+        $dirOnly = false;
+        $target = 'R';
+
+        if ($createBoard) {
+            if (!$this->adminMode) {
+                $this->log('alert', 'database-creation-restricted-to-admin-mode', $boardPath);
+                return false;
+            }
+            $dirOnly = true;
+            $target = 'C';
         }
+
+        if ($this->checkBoardPath($boardPath, $dirOnly)
+            && $this->checkRights($crudRights, $target)) {
+
+                $boardMap = $this->MapProvider->getBoardMap($boardPath);
+
+                if($boardMap && $board = $this->initBoard($boardPath)){
+                  
+                        $deckOperator = new Trades\DeckOperator($this->SchemaProvider, $board, $boardMap, $crudRights);
+                        $deckOperator->setLogger($this->logger);
+                        $this->relayChecker($deckOperator);
+                        return $deckOperator;
+                    }
+                }
+            
         return false;
     }
 
@@ -100,8 +116,9 @@ class Hollerith implements Blueprints\FlexLogsInterface, Blueprints\AdminModeInt
     private function callProviders()
     {
         foreach (['SchemaProvider' => $this->schDir, 'MapProvider' => $this->mapDir] as $baseProvider => $baseDir) {
-            $this->$baseProvider = new $baseProvider($baseDir, $this->throwException);
-            $this->relayLog($this->$baseProvider);
+            $providerClass = __NAMESPACE__ . '\Trades\\' . $baseProvider;
+            $this->$baseProvider = new $providerClass($baseDir, $this->throwException);
+            $this->$baseProvider->setLogger($this->logger);
 
             if (!$this->$baseProvider->isOperational()) {
                 $this->allSet = false;
@@ -111,9 +128,13 @@ class Hollerith implements Blueprints\FlexLogsInterface, Blueprints\AdminModeInt
         $this->allSet = true;
     }
 
-    private function checkBoardPath($boardPath)
+    private function checkBoardPath($boardPath, $dirOnly = false)
     {
+        if ($dirOnly) {
+            $boardPath = dirname($boardPath);
+        }
         if (!is_readable($boardPath)) {
+
             $msg = 'unreadable-boardPath';
             $this->log('alert', $msg, $boardPath);
             if ($this->throwException) {
@@ -124,16 +145,17 @@ class Hollerith implements Blueprints\FlexLogsInterface, Blueprints\AdminModeInt
         return true;
     }
 
-    private function checkRights($crudRights)
+    private function checkRights($crudRights, $target = 'R')
     {
-        if (!array_key_exists('R', $crudRights) || $crudRights['R'] !== true) {
-            $msg = 'no-read-right';
+        if (!array_key_exists($target, $crudRights) || $crudRights[$target] !== true) {
+            $msg = 'no-' . $target . '-right';
             $this->log('warning', $msg, $crudRights);
             if ($this->throwException) {
                 throw new \Exception("$msg $crudRights");
             }
             return false;
         }
+      
         return true;
     }
 

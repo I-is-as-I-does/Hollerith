@@ -2,11 +2,12 @@
 
 namespace SSITU\Hollerith\Trades;
 
-use \SSITU\Blueprints;
+use \SSITU\Blueprints\Log;
 
-class MapProvider implements Blueprints\HubLogInterface
+class MapProvider implements Log\FlexLogsInterface
+
 {
-    use Blueprints\HubLogTrait;
+    use Log\FlexLogsTrait;
 
     private $throwException;
     private $mapDir;
@@ -16,7 +17,7 @@ class MapProvider implements Blueprints\HubLogInterface
     public function __construct($mapDir, $throwException = false)
     {
         $this->throwException = $throwException;
-        $this->setMapDir();
+        $this->setMapDir($mapDir);
     }
 
     public function isOperational()
@@ -29,10 +30,14 @@ class MapProvider implements Blueprints\HubLogInterface
         if (!$this->isOperational() || empty($boardPath)) {
             return false;
         }
+        
         $basename = basename($boardPath, '.db');
+      
         if (!array_key_exists($basename, $this->boardMaps)) {
             $this->boardMaps[$basename] = $this->loadBoardMap($basename);
+           
         }
+      
         return $this->boardMaps[$basename];
     }
 
@@ -40,7 +45,7 @@ class MapProvider implements Blueprints\HubLogInterface
     {
         if (!is_readable($mapDir)) {
             $msg = 'invalid-map-dir';
-            $this->hubLog('alert', $msg, $mapDir);
+            $this->log('alert', $msg, $mapDir);
             if ($this->throwException) {
                 throw new \Exception("$msg $mapDir");
             }
@@ -52,8 +57,11 @@ class MapProvider implements Blueprints\HubLogInterface
 
     private function loadBoardMap($basename)
     {
+
         $boardMapPath = $this->mapDir . $basename . '.php';
-        if (is_readable($boardMapPath) && $boardMap = $this->requireBoardMap($boardMapPath)) {
+       
+        if (is_readable($boardMapPath) && $boardMap = $this->requireBoardMap($boardMapPath)) {   
+
             return $this->validMap($boardMap);
         }
         $msg = 'unreadable-boardMap';
@@ -66,20 +74,19 @@ class MapProvider implements Blueprints\HubLogInterface
 
     private function requireBoardMap($boardMapPath)
     {
-        require_once $boardMapPath;
+        $map = require $boardMapPath;
+        return $map;
     }
 
     private function validMap($boardMap)
     {
-        foreach (['sch', 'rlt'] as $baseKey) {
-            if (empy($boardMap[$baseKey])) {
-                $msg = 'invalid-board-map';
-                $this->log('alert', $msg, $boardMap);
-                if ($this->throwException) {
-                    throw new \Exception("$msg $boardMap");
-                }
-                return false;
+        if (empty($boardMap['sch'])) {
+            $msg = 'invalid-board-map';
+            $this->log('alert', $msg, $boardMap);
+            if ($this->throwException) {
+                throw new \Exception("$msg $boardMap");
             }
+            return false;
         }
         return $boardMap;
     }

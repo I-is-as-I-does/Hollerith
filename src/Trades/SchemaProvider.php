@@ -2,12 +2,12 @@
 
 namespace SSITU\Hollerith\Trades;
 
-use \SSITU\Blueprints;
+use \SSITU\Blueprints\Log;
 
-class SchemaProvider implements Blueprints\HubLogInterface
+class SchemaProvider implements Log\FlexLogsInterface
 
 {
-    use Blueprints\HubLogTrait;
+    use Log\FlexLogsTrait;
     private $schDir;
 
     private $sch = [];
@@ -24,7 +24,7 @@ class SchemaProvider implements Blueprints\HubLogInterface
     {
         if (!is_readable($schDir)) {
             $msg = 'unreadable-sch-dir';
-            $this->hubLog('alert', $msg, $schDir);
+            $this->log('alert', $msg, $schDir);
             if ($throwException) {
                 throw new \Exception("$msg $schDir");
             }
@@ -46,8 +46,7 @@ class SchemaProvider implements Blueprints\HubLogInterface
         if (empty($filename)) {
             $this->sch[$filename] = false;
             $this->missingSchemaAlert($filename);
-        }
-        elseif (!array_key_exists($this->sch[$filename])) {
+        } elseif (!array_key_exists($filename, $this->sch)) {
             $this->sch[$filename] = $this->loadSch($filename);
         }
         return $this->sch[$filename];
@@ -56,21 +55,22 @@ class SchemaProvider implements Blueprints\HubLogInterface
     private function missingSchemaAlert($filename)
     {
         $msg = 'unable-to-load-schema';
-        $this->hubLog('alert', $msg, $schIdent);
+        $this->log('alert', $msg, $filename);
         if ($this->throwException) {
-            throw new \Exception("$msg $schIdent");
+            throw new \Exception("$msg $filename");
         }
     }
 
     private function loadSch($filename)
     {
-        $path = $this->schDir . $filename;
+
+        $path = $this->schDir . $filename.'.json';
         $json = false;
-        if(is_readable($path)){
+        if (is_readable($path)) {
             $json = file_get_contents($path);
-        }     
+        }
         if (empty($json)) {
-           $this->missingSchemaAlert($filename);
+            $this->missingSchemaAlert($filename);
         }
         return $json;
     }
