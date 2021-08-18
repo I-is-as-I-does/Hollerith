@@ -143,9 +143,9 @@ class DeckOperator implements Log\FlexLogsInterface, Mode\HubModeInterface
         return 404;
     }
 
-    public function createCard($deckName, $data)
+    public function createCard($deckName, $data, $returnId = false)
     {
- 
+
         $deck = $this->loadDeckForPunch($deckName, $data, 'C');
         if (is_int($deck)) {
             return $deck;
@@ -159,7 +159,11 @@ class DeckOperator implements Log\FlexLogsInterface, Mode\HubModeInterface
         $card->addJsonSchema($sch);
 
         if ($this->cardTransaction($deck, $card, $data)) {
-            $this->cardswithSch[] = $card->getId();
+            $id = $card->getId();
+            $this->cardswithSch[] = $id;
+            if ($returnId) {
+                return $id;
+            }
             return 201;
         }
         $card->delete();
@@ -306,9 +310,9 @@ class DeckOperator implements Log\FlexLogsInterface, Mode\HubModeInterface
 
     protected function cardTransaction($deck, $card, $data)
     {
-
-        $deck->beginTransaction();
+//@todo: not catching exceotion when schema validation fails
         try {
+            $deck->beginTransaction();
             foreach ($data as $key => $value) {
                 $card->setValue($key, $value);
             }
