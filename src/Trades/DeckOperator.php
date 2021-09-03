@@ -1,5 +1,7 @@
 <?php
 
+//@doc: since sch validation is implemented, if schema is built this way "type":"object", "properties":{...}: remember to wrap card data in an array
+
 namespace SSITU\Hollerith\Trades;
 
 use Gebler\Doclite\Database;
@@ -42,6 +44,23 @@ class DeckOperator implements Log\FlexLogsInterface, Mode\HubModeInterface
         return $this->db;
     }
 
+# crud rights
+    public function hasRight($operation)
+    {
+        return !empty($this->crudRights[$operation]);
+
+    }
+
+public function setRights($crudRights)
+    {
+        foreach (['C', 'R', 'U', 'D'] as $prop) {
+            if (!array_key_exists($prop, $crudRights) || $crudRights[$prop] !== true) {
+                $crudRights[$prop] = false;
+            }
+        }
+        $this->crudRights = $crudRights;
+    }
+
     public function exportBoard($path, $decks = [])
     {
         $this->db->export($path, 'json', Database::MODE_EXPORT_COLLECTIONS, $decks);
@@ -79,6 +98,7 @@ class DeckOperator implements Log\FlexLogsInterface, Mode\HubModeInterface
             $this->log('alert', 'unauthorized-call-to-shred-deck', $deckName);
             return false;
         }
+        $this->shredAllDeckCards($deckName);
         $this->db->collection($deckName)->delete(); //todo test
         return true;
     }
@@ -94,26 +114,35 @@ class DeckOperator implements Log\FlexLogsInterface, Mode\HubModeInterface
         if (!$desc) {
             $order = 'ASC';
         }
-        $cards = $deck->orderBy($orderByField, $order)
+        return $deck->orderBy($orderByField, $order)
             ->limit($limit)
             ->offset($offset)
             ->fetch();
-
-        foreach ($cards as $k => $card) {
-            $cards[$k] = $this->resolveCard($deckName, $card);
-        }
-        return $cards;
     }
 
     public function shredAllDeckCards($deckName)
     {
         if (!$this->inAdminMode()) {
             $this->log('alert', 'unauthorized-call-to-shred-all-cards', $deckName);
-            return false;
+            return 403;
         }
         if ($deck = $this->getDeck($deckName)) {
-            $deck->deleteAll();
+            foreach ($deck->findAll() as $card) {
+                $this->updateThenDelete($deckName, $card);
+            }
             return 204;
+        }
+        return 404;
+    }
+
+    public function getCardByValue($deckName,$key,$value)
+    {
+        $deck = $this->getDeck($deckName);
+        if (empty($deck)) {
+            return 404;
+        }
+        if($card = $deck->findOneBy([$key => $value])){
+            return $card;
         }
         return 404;
     }
@@ -126,7 +155,7 @@ class DeckOperator implements Log\FlexLogsInterface, Mode\HubModeInterface
         }
         $card = $deck->where('__id', '=', $cardId);
         if ($card->count()) {
-            return $this->resolveCard($card);
+            return $this->$card;
         }
         return 404;
     }
@@ -137,10 +166,16 @@ class DeckOperator implements Log\FlexLogsInterface, Mode\HubModeInterface
             return 403;
         }
         if ($card = $this->getCardById($deckName, $cardId)) {
-            $card->delete();
+            $this->updateThenDelete($deckName, $card);
             return 204;
         }
         return 404;
+    }
+
+    protected function updateThenDelete($deckName, $card)
+    {
+        $this->updateRltCards($deckName, $card, true);
+        $card->delete();
     }
 
     public function createCard($deckName, $data, $returnId = false)
@@ -189,16 +224,63 @@ class DeckOperator implements Log\FlexLogsInterface, Mode\HubModeInterface
             $card->addJsonSchema($sch);
             $this->cardswithSch[] = $cardId;
         }
-
         if ($this->cardTransaction($deck, $card, $data)) {
+            if (array_key_exists('__label', $data)) {
+                $this->updateRltCards($deckName, $card, false);
+            }
             return 201;
         }
         return 400;
     }
 
+    public function deckHasRelations($deckName)
+    {
+        return array_key_exists($deckName, $this->dbMap['rlt']);
+    }
+
+    public function getRltCards($deckName, $fdeckName, $cardId)
+    {
+        if ($fdeck = $this->getDeck($fdeckName)) {
+            return $fdeck->findAllBy([$this->getIdHook($deckName) => $cardId]);
+        }
+    }
+
+    public function getIdHook($deckName)
+    {
+        return '__' . $deckName . '.__id';
+    }
+
+    public function getLabelHook($deckName)
+    {
+        return '__' . $deckName . '.__label';
+    }
+
+    public function updateRltCards($deckName, $card, $unlink = false)
+    {
+        $rltMap = $this->getDeckRltMap($deckName);
+        if (empty($rltMap)) {
+            return;
+        }
+        $cardId = $card->getId();
+        foreach ($rltMap as $fdeckName) {
+            if ($fCards = $this->getRltCards($deckName, $fdeckName, $cardId)) {
+
+                foreach ($fCards as $fCard) {
+                    if ($unlink) {
+                        $fCard->setValue($this->getIdHook($deckName), "");
+                    } else {
+                        $fCard->setValue($this->getLabelHook($deckName), $card->__label);
+                    }
+
+                    $fCard->save();
+                }
+            }
+        }
+    }
+
     protected function loadDeckForPunch($deckName, $data, $operation)
     {
-        if (!$this->checkRights($operation)) {
+        if (!$this->hasRight($operation)) {
             return 403;
         }
         if (!$this->cardHasData($data)) {
@@ -211,44 +293,15 @@ class DeckOperator implements Log\FlexLogsInterface, Mode\HubModeInterface
         return 404;
     }
 
-    protected function resolveCard($deckName, $card)
-    {
-        $deckRltMap = $this->getDeckRltMap($deckName);
-        if (empty($deckRltMap)) {
-            return $card;
-        }
-        $dataArr = $card->toArray();
-        $nested = array_intersect($deckRltMap, array_keys($dataArr));
-        if (empty($nested)) {
-            return $card; //@doc aka no relations, or relations not implemented as fields
-        }
-        foreach ($nested as $rltField) {
-            if ($rltField[0] != '_' && empty($dataArr[$rltField])) {
-                continue;
-            }
-            $fdeckName = explode('_', ltrim($rltField, '_'))[1];
-            $fdeck = $this->getDeck($fdeckName);
-            if (!$fdeck) {
-                continue;
-            }
-            if ($rltField[0] == '_') {
-                $card = RelationResolver::resolveReadOnlyRlt($card, $rltField, $fdeck, []);
-            } else {
-                $card = RelationResolver::resolveRlt($card, $rltField, $fdeck, $dataArr[$rltField]);
-            }
-        }
-        return $card;
-    }
-
     protected function getDeckRltMap($deckName)
     {
-        if ($this->deckisInMap($deckName)) {
+        if ($this->deckHasRelations($deckName)) {
             return $this->dbMap['rlt'][$deckName];
         }
         return [];
     }
 
-    protected function deckisInMap($deckName)
+    protected function deckHasSch($deckName)
     {
         return array_key_exists($deckName, $this->dbMap['sch']);
     }
@@ -265,7 +318,7 @@ class DeckOperator implements Log\FlexLogsInterface, Mode\HubModeInterface
 
     protected function getDeckSchFilename($deckName)
     {
-        if (!$this->deckisInMap($deckName)) {
+        if (!$this->deckHasSch($deckName)) {
             $this->dbMap['sch'][$deckName] = false;
             $this->log('alert', 'missing-schema-path-in-board-map', $deckName);
             return false;
@@ -275,7 +328,7 @@ class DeckOperator implements Log\FlexLogsInterface, Mode\HubModeInterface
 
     protected function loadDeck($deckName)
     {
-        if ($this->deckIsInMap($deckName)) {
+        if ($this->deckHasSch($deckName)) {
             $deck = $this->db->collection($deckName);
             $deck->enableCache(); //@todo: benchmarks
             return $deck;
@@ -283,24 +336,6 @@ class DeckOperator implements Log\FlexLogsInterface, Mode\HubModeInterface
         return false;
     }
 
-# crud rights methods
-
-    protected function setRights($crudRights)
-    {
-        foreach (['C', 'R', 'U', 'D'] as $prop) {
-            if (!array_key_exists($prop, $crudRights) || $crudRights[$prop] !== true) {
-                echo $prop;
-                $crudRights[$prop] = false;
-            }
-        }
-        $this->crudRights = $crudRights;
-    }
-
-    protected function checkRights($operation)
-    {
-        return !empty($this->crudRights[$operation]);
-
-    }
 
 # card-level methods
     protected function cardHasSch($cardId)
@@ -311,6 +346,7 @@ class DeckOperator implements Log\FlexLogsInterface, Mode\HubModeInterface
     protected function cardTransaction($deck, $card, $data)
     {
 //@todo: not catching exceotion when schema validation fails
+
         try {
             $deck->beginTransaction();
             foreach ($data as $key => $value) {
