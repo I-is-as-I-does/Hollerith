@@ -183,10 +183,12 @@ public function setRights($crudRights)
 
         $deck = $this->loadDeckForPunch($deckName, $data, 'C');
         if (is_int($deck)) {
+         
             return $deck;
         }
         $sch = $this->getDeckSch($deckName);
         if (empty($sch)) {
+       
             return 500;
         }
 
@@ -196,6 +198,7 @@ public function setRights($crudRights)
         if ($this->cardTransaction($deck, $card, $data)) {
             $id = $card->getId();
             $this->cardswithSch[] = $id;
+
             if ($returnId) {
                 return $id;
             }
@@ -348,10 +351,12 @@ public function setRights($crudRights)
 //@todo: not catching exceotion when schema validation fails
 
         try {
+     
             $deck->beginTransaction();
             foreach ($data as $key => $value) {
                 $card->setValue($key, $value);
             }
+    
             $card->save();
             $deck->commit();
             return true;

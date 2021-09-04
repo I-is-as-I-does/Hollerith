@@ -32,7 +32,7 @@ class MapProvider implements Log\FlexLogsInterface
         }
         
         $basename = basename($boardPath, '.db');
-      
+
         if (!array_key_exists($basename, $this->boardMaps)) {
             $this->boardMaps[$basename] = $this->loadBoardMap($basename);
            

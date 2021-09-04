@@ -67,6 +67,7 @@ class Hollerith implements Log\FlexLogsInterface, Mode\AdminModeInterface
     private function assignDeckOperator($boardPath, $crudRights, $createBoard = false)
     {
         if (!$this->allSet) {
+
             return false;
         }
 
@@ -86,7 +87,7 @@ class Hollerith implements Log\FlexLogsInterface, Mode\AdminModeInterface
             && $this->checkRights($crudRights, $target)) {
 
                 $boardMap = $this->MapProvider->getBoardMap($boardPath);
-
+                
                 if($boardMap && $board = $this->initBoard($boardPath)){
                   
                         $deckOperator = new Trades\DeckOperator($this->SchemaProvider, $board, $boardMap, $crudRights);

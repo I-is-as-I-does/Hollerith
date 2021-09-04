@@ -63,16 +63,20 @@ class SchemaProvider implements Log\FlexLogsInterface
 
     private function loadSch($filename)
     {
-
-        $path = $this->schDir . $filename.'.json';
-        $json = false;
+        $path = $this->schDir . $filename;
+        $content = false;
         if (is_readable($path)) {
-            $json = file_get_contents($path);
+            if(substr($filename,-3) == 'php'){
+                $content = include $path;
+                $content = json_encode($content);
+            } else {
+                $content = file_get_contents($path);
+            }
         }
-        if (empty($json)) {
-            $this->missingSchemaAlert($filename);
+        if (empty($content)) {
+            $this->missingSchemaAlert($path);
         }
-        return $json;
+        return $content;
     }
 
 }
