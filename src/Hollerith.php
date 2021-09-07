@@ -14,99 +14,90 @@ class Hollerith implements Log\FlexLogsInterface, Mode\AdminModeInterface
     use Log\FlexLogsTrait;
     use Mode\AdminModeTrait;
 
-    private $store = [];
-
-    private $SchemaProvider;
-    private $MapProvider;
-
-    private $schDir;
-    private $mapDir;
     private $throwException;
+    private $defaultSchDir;
 
-    private $allSet = null;
-
-    public function __construct($schDir, $mapDir, $throwException = false)
+    public function __construct($defaultSchDir = null, $throwException = false)
     {
-        $this->schDir = $schDir;
-        $this->mapDir = $mapDir;
+        $this->defaultSchDir = $defaultSchDir;
         $this->throwException = $throwException;
-        $this->callProviders();
+
     }
 
-    public function isAllSet()
+    public function getCardOperator($path, $crudRights, $schDir = null, $create = false)
     {
-        return $this->allSet;
-    }
+        if ($this->passChecks($path, $crudRights, $schDir, $create)
+            && $db = $this->initDb($path)) {
+            $schProvider = $this->getSchemaProvider($schDir);
+            $CardOperator = new Trades\CardOperator($db, $schProvider, $crudRights);
 
-    public function isRegistered($boardpath)
-    {
-        return array_key_exists($boardpath, $this->store);
-    }
+            $this->relayLog($CardOperator);
+            $this->relayChecker($CardOperator);
 
-    public function isOperational($boardpath)
-    {
-        return !empty($this->store[$boardpath]);
-    }
-
-    public function callDeckOperator($boardPath, $crudRights, $createBoard = false)
-    {
-        if (!$this->isRegistered($boardPath)) {
-            $this->store[$boardPath] = $this->assignDeckOperator($boardPath, $crudRights, $createBoard);
-        }
-        return $this->store[$boardPath];
-    }
-
-    public function getAssignedDeckOperator($boardPath)
-    {
-        if ($this->isRegistered($boardPath)) {
-            return $this->store[$boardPath];
+            return $CardOperator;
         }
         return false;
     }
 
-    private function assignDeckOperator($boardPath, $crudRights, $createBoard = false)
+    private function callParam($create)
     {
-        if (!$this->allSet) {
+        if ($create) {
+            return [
+                'dirOnly' => true,
+                'target' => 'C',
+            ];
+        }
+        return [
+            'dirOnly' => false,
+            'target' => 'R',
+        ];
+    }
 
+    private function passChecks($path, &$crudRights, &$schDir, $create)
+    {
+        if ($create && !$this->adminMode) {
+            $this->log('alert', 'database-creation-restricted-to-admin-mode', $path);
             return false;
         }
+        $callParam = $this->callParam($create);
+        return $this->checkPath($path, $callParam['dirOnly'])
+        && $this->checkRights($crudRights, $callParam['target'])
+        && $this->checkSchDir($schDir);
+    }
 
-        $dirOnly = false;
-        $target = 'R';
-
-        if ($createBoard) {
-            if (!$this->adminMode) {
-                $this->log('alert', 'database-creation-restricted-to-admin-mode', $boardPath);
-                return false;
+    private function checkSchDir(&$schDir)
+    {
+        if (empty($schDir)) {
+            if (!empty($this->defaultSchDir)) {
+                $schDir = $this->defaultSchDir;
             }
-            $dirOnly = true;
-            $target = 'C';
         }
-
-        if ($this->checkBoardPath($boardPath, $dirOnly)
-            && $this->checkRights($crudRights, $target)) {
-
-                $boardMap = $this->MapProvider->getBoardMap($boardPath);
-                
-                if($boardMap && $board = $this->initBoard($boardPath)){
-                  
-                        $deckOperator = new Trades\DeckOperator($this->SchemaProvider, $board, $boardMap, $crudRights);
-                        $deckOperator->setLogger($this->logger);
-                        $this->relayChecker($deckOperator);
-                        return $deckOperator;
-                    }
-                }
-            
+        if ($schDir && is_readable($schDir)) {
+            $schDir = rtrim($schDir, '/\\') . '/';
+            return true;
+        }
+        $msg = 'unreadable-sch-dir';
+        $this->log('alert', $msg, $schDir);
+        if ($this->throwException) {
+            throw new \Exception("$msg $schDir");
+        }
         return false;
     }
 
-    private function initBoard($boardPath)
+    private function getSchemaProvider($schDir)
+    {
+        $schProvider = new Trades\SchemaProvider($schDir, $this->throwException);
+        $this->relayLog($schProvider);
+        return $schProvider;
+    }
+
+    private function initDb($path)
     {
         try {
-            $board = new FileDatabase($boardPath);
-            return $board;
+            $db = new FileDatabase($path);
+            return $db;
         } catch (IOException | DatabaseException $e) {
-            $this->log('alert', 'database-loading-exception', ['board-path' => $boardPath, $e->getMessage()]);
+            $this->log('alert', 'database-loading-exception', ['db-path' => $path, $e->getMessage()]);
             if ($this->throwException) {
                 throw $e;
             }
@@ -114,39 +105,24 @@ class Hollerith implements Log\FlexLogsInterface, Mode\AdminModeInterface
         }
     }
 
-    private function callProviders()
-    {
-        foreach (['SchemaProvider' => $this->schDir, 'MapProvider' => $this->mapDir] as $baseProvider => $baseDir) {
-            $providerClass = __NAMESPACE__ . '\Trades\\' . $baseProvider;
-            $this->$baseProvider = new $providerClass($baseDir, $this->throwException);
-            $this->$baseProvider->setLogger($this->logger);
-
-            if (!$this->$baseProvider->isOperational()) {
-                $this->allSet = false;
-                return;
-            }
-        }
-        $this->allSet = true;
-    }
-
-    private function checkBoardPath($boardPath, $dirOnly = false)
+    private function checkPath($path, $dirOnly = false)
     {
         if ($dirOnly) {
-            $boardPath = dirname($boardPath);
+            $path = dirname($path);
         }
-        if (!is_readable($boardPath)) {
+        if (!is_readable($path)) {
 
-            $msg = 'unreadable-boardPath';
-            $this->log('alert', $msg, $boardPath);
+            $msg = 'unreadable-db-path';
+            $this->log('alert', $msg, $path);
             if ($this->throwException) {
-                throw new \Exception("$msg $boardPath");
+                throw new \Exception("$msg $path");
             }
             return false;
         }
         return true;
     }
 
-    private function checkRights($crudRights, $target = 'R')
+    private function checkRights(&$crudRights, $target = 'R')
     {
         if (!array_key_exists($target, $crudRights) || $crudRights[$target] !== true) {
             $msg = 'no-' . $target . '-right';
@@ -156,7 +132,8 @@ class Hollerith implements Log\FlexLogsInterface, Mode\AdminModeInterface
             }
             return false;
         }
-      
+        
+            $crudRights = array_filter($crudRights, function ($itm) {return !empty($itm);});
         return true;
     }
 

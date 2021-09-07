@@ -2,80 +2,58 @@
 
 namespace SSITU\Hollerith\Trades;
 
-use \SSITU\Blueprints\Log;
 
-class SchemaProvider implements Log\FlexLogsInterface
+class SchemaProvider implements Log\HubLogsInterface
 
 {
-    use Log\FlexLogsTrait;
-    private $schDir;
+    use Log\HubLogsTrait;
 
-    private $sch = [];
+    private $schDir;
     private $throwException;
+    private $sch = [];
 
     public function __construct($schDir, $throwException = false)
     {
         $this->schDir = $schDir;
         $this->throwException = $throwException;
-        $this->setSchDir($schDir);
     }
 
-    private function setSchDir($schDir)
+    private function setSch($deckName)
     {
-        if (!is_readable($schDir)) {
-            $msg = 'unreadable-sch-dir';
-            $this->log('alert', $msg, $schDir);
-            if ($throwException) {
-                throw new \Exception("$msg $schDir");
-            }
-        } else {
-            $this->schDir = $schDir;
-        }
+        $this->sch[$deckName] =$this->loadSch($deckName);
+            return !empty($this->sch[$deckName]);
     }
 
-    public function isOperational()
-    {
-        return isset($this->schDir);
+    public function getSch($deckName)
+    {    
+        if (!array_key_exists($deckName, $this->sch)) {
+            $this->setSch($deckName);
+        }
+        return $this->sch[$deckName];
     }
 
-    public function getSch($filename)
-    {
-        if (!$this->isOperational()) {
-            return false;
-        }
-        if (empty($filename)) {
-            $this->sch[$filename] = false;
-            $this->missingSchemaAlert($filename);
-        } elseif (!array_key_exists($filename, $this->sch)) {
-            $this->sch[$filename] = $this->loadSch($filename);
-        }
-        return $this->sch[$filename];
-    }
-
-    private function missingSchemaAlert($filename)
+    private function missingSchAlert($deckName)
     {
         $msg = 'unable-to-load-schema';
-        $this->log('alert', $msg, $filename);
+        $this->log('alert', $msg, $deckName);
         if ($this->throwException) {
-            throw new \Exception("$msg $filename");
+            throw new \Exception("$msg $deckName");
         }
     }
 
-    private function loadSch($filename)
+    private function loadSch($deckName)
     {
-        $path = $this->schDir . $filename;
         $content = false;
+        if($this->schDir){
+        $path = $this->schDir . $deckName . '-sch.json';
+       
         if (is_readable($path)) {
-            if(substr($filename,-3) == 'php'){
-                $content = include $path;
-                $content = json_encode($content);
-            } else {
                 $content = file_get_contents($path);
             }
-        }
         if (empty($content)) {
-            $this->missingSchemaAlert($path);
+            $this->missingSchAlert($path);
         }
+    }
         return $content;
     }
 

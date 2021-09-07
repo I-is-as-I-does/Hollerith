@@ -4,10 +4,10 @@ namespace SSITU\Hollerith\Trades;
 
 use \SSITU\Blueprints\Log;
 
-class MapProvider implements Log\FlexLogsInterface
+class MapProvider implements Log\HubLogsInterface
 
 {
-    use Log\FlexLogsTrait;
+    use Log\HubLogsTrait;
 
     private $throwException;
     private $mapDir;
@@ -25,13 +25,13 @@ class MapProvider implements Log\FlexLogsInterface
         return isset($this->mapDir);
     }
 
-    public function getBoardMap($boardPath)
+    public function getBoardMap($mapName)
     {
-        if (!$this->isOperational() || empty($boardPath)) {
+        if (!$this->isOperational() || empty($mapName)) {
             return false;
         }
         
-        $basename = basename($boardPath, '.db');
+        $basename = basename($mapName, '.db');
 
         if (!array_key_exists($basename, $this->boardMaps)) {
             $this->boardMaps[$basename] = $this->loadBoardMap($basename);
