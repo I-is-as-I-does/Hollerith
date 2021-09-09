@@ -2,37 +2,37 @@
 
 namespace SSITU\Hollerith\Trades;
 
-
-class SchemaProvider implements Log\HubLogsInterface
+use \SSITU\Blueprints\Log;
+class Schemas implements Log\HubLogsInterface
 
 {
     use Log\HubLogsTrait;
 
-    private $schDir;
+    private $schemasDir;
     private $throwException;
     private $sch = [];
 
-    public function __construct($schDir, $throwException = false)
-    {
-        $this->schDir = $schDir;
-        $this->throwException = $throwException;
+    public function __construct($Operator)
+    { 
+        $this->schemasDir = rtrim($Operator->schDir(), '/\\') . '/';
+        $this->throwException = $Operator->throwException();   
     }
 
-    private function setSch($deckName)
+    public function setSchema($deckName)
     {
-        $this->sch[$deckName] =$this->loadSch($deckName);
+        $this->sch[$deckName] =$this->loadSchema($deckName);
             return !empty($this->sch[$deckName]);
     }
 
-    public function getSch($deckName)
+    public function getSchema($deckName)
     {    
         if (!array_key_exists($deckName, $this->sch)) {
-            $this->setSch($deckName);
+            $this->setSchema($deckName);
         }
         return $this->sch[$deckName];
     }
 
-    private function missingSchAlert($deckName)
+    public function missingSchemaAlert($deckName)
     {
         $msg = 'unable-to-load-schema';
         $this->log('alert', $msg, $deckName);
@@ -41,19 +41,17 @@ class SchemaProvider implements Log\HubLogsInterface
         }
     }
 
-    private function loadSch($deckName)
+    public function loadSchema($deckName)
     {
         $content = false;
-        if($this->schDir){
-        $path = $this->schDir . $deckName . '-sch.json';
+        $path = $this->schemasDir . $deckName . '-sch.json';
        
         if (is_readable($path)) {
                 $content = file_get_contents($path);
             }
         if (empty($content)) {
-            $this->missingSchAlert($path);
+            $this->missingSchemaAlert($path);
         }
-    }
         return $content;
     }
 

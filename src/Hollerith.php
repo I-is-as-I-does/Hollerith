@@ -15,28 +15,59 @@ class Hollerith implements Log\FlexLogsInterface, Mode\AdminModeInterface
     use Mode\AdminModeTrait;
 
     private $throwException;
-    private $defaultSchDir;
+    private $defaultSchemasDir;
 
-    public function __construct($defaultSchDir = null, $throwException = false)
+    public function __construct($defaultSchemasDir = null, $throwException = false)
     {
-        $this->defaultSchDir = $defaultSchDir;
+        $this->defaultSchemasDir = $defaultSchemasDir;
         $this->throwException = $throwException;
 
     }
 
-    public function getCardOperator($path, $crudRights, $schDir = null, $create = false)
+    public function getOperator($path, $crudRights, $schemasDir = null, $create = false)
     {
-        if ($this->passChecks($path, $crudRights, $schDir, $create)
+        if (is_null($schemasDir)) {
+                $schemasDir = $this->defaultSchemasDir;
+        }
+        if ($this->passChecks($path, $crudRights, $schemasDir, $create)
             && $db = $this->initDb($path)) {
-            $schProvider = $this->getSchemaProvider($schDir);
-            $CardOperator = new Trades\CardOperator($db, $schProvider, $crudRights);
+            $Operator = new Operator($db, $path, $schemasDir, $crudRights, $this->throwException);
 
-            $this->relayLog($CardOperator);
-            $this->relayChecker($CardOperator);
+            $this->relayLog($Operator);
+            $this->relayChecker($Operator);
 
-            return $CardOperator;
+            return $Operator;
         }
         return false;
+    }
+
+    
+    private function initDb($path)
+    {
+        try {
+            $db = new FileDatabase($path);
+            return $db;
+        } catch (IOException | DatabaseException $e) {
+            $this->log('alert', 'database-loading-exception', ['db-path' => $path, $e->getMessage()]);
+            if ($this->throwException) {
+                throw $e;
+            }
+            return false;
+        }
+    }
+
+  
+
+    private function passChecks($path, $crudRights, $schemasDir, $create)
+    {
+        if ($create && !$this->adminMode) {
+            $this->log('alert', 'database-creation-restricted-to-admin-mode', $path);
+            return false;
+        }
+        $callParam = $this->callParam($create);
+        return $this->checkPath($path, $callParam['dirOnly'])
+        && $this->checkRights($crudRights, $callParam['target'])
+        && $this->checkSchemasDir($schemasDir);
     }
 
     private function callParam($create)
@@ -53,64 +84,28 @@ class Hollerith implements Log\FlexLogsInterface, Mode\AdminModeInterface
         ];
     }
 
-    private function passChecks($path, &$crudRights, &$schDir, $create)
+    private function checkSchemasDir($schemasDir)
     {
-        if ($create && !$this->adminMode) {
-            $this->log('alert', 'database-creation-restricted-to-admin-mode', $path);
-            return false;
-        }
-        $callParam = $this->callParam($create);
-        return $this->checkPath($path, $callParam['dirOnly'])
-        && $this->checkRights($crudRights, $callParam['target'])
-        && $this->checkSchDir($schDir);
-    }
-
-    private function checkSchDir(&$schDir)
-    {
-        if (empty($schDir)) {
-            if (!empty($this->defaultSchDir)) {
-                $schDir = $this->defaultSchDir;
-            }
-        }
-        if ($schDir && is_readable($schDir)) {
-            $schDir = rtrim($schDir, '/\\') . '/';
+        if (!is_null($schemasDir) && is_readable($schemasDir)) {
             return true;
         }
-        $msg = 'unreadable-sch-dir';
-        $this->log('alert', $msg, $schDir);
+        $msg = 'unreadable-schemas-dir';
+        $this->log('alert', $msg, $schemasDir);
         if ($this->throwException) {
-            throw new \Exception("$msg $schDir");
+            throw new \Exception("$msg $schemasDir");
         }
         return false;
     }
 
-    private function getSchemaProvider($schDir)
-    {
-        $schProvider = new Trades\SchemaProvider($schDir, $this->throwException);
-        $this->relayLog($schProvider);
-        return $schProvider;
-    }
-
-    private function initDb($path)
-    {
-        try {
-            $db = new FileDatabase($path);
-            return $db;
-        } catch (IOException | DatabaseException $e) {
-            $this->log('alert', 'database-loading-exception', ['db-path' => $path, $e->getMessage()]);
-            if ($this->throwException) {
-                throw $e;
-            }
-            return false;
-        }
-    }
 
     private function checkPath($path, $dirOnly = false)
     {
         if ($dirOnly) {
             $path = dirname($path);
         }
-        if (!is_readable($path)) {
+        if (is_readable($path)) {
+            return true;
+        }
 
             $msg = 'unreadable-db-path';
             $this->log('alert', $msg, $path);
@@ -118,23 +113,20 @@ class Hollerith implements Log\FlexLogsInterface, Mode\AdminModeInterface
                 throw new \Exception("$msg $path");
             }
             return false;
-        }
-        return true;
     }
 
-    private function checkRights(&$crudRights, $target = 'R')
+    private function checkRights($crudRights, $target = 'R')
     {
-        if (!array_key_exists($target, $crudRights) || $crudRights[$target] !== true) {
+        if(!empty($crudRights[$target])){
+            return true;
+        }
             $msg = 'no-' . $target . '-right';
             $this->log('warning', $msg, $crudRights);
             if ($this->throwException) {
                 throw new \Exception("$msg $crudRights");
             }
             return false;
-        }
-        
-            $crudRights = array_filter($crudRights, function ($itm) {return !empty($itm);});
-        return true;
+
     }
 
 }
